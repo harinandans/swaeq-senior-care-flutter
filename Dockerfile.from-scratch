@@ -1,0 +1,64 @@
+# syntax=docker/dockerfile:1
+#
+# Fully from-scratch alternative (Ubuntu + Flutter + Android SDK).
+# Prefer the main Dockerfile (cirruslabs) unless you cannot pull GHCR.
+# Must run on linux/amd64 (AWS x86).
+#
+#   docker build -f Dockerfile.from-scratch -t swaeq-senior-apk .
+#   docker run --rm -v "$PWD:/host" swaeq-senior-apk \
+#     cp /out/swaeq-senior.apk /host/swaeq-senior.apk
+
+FROM --platform=linux/amd64 ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    ANDROID_HOME=/opt/android-sdk \
+    ANDROID_SDK_ROOT=/opt/android-sdk \
+    FLUTTER_HOME=/opt/flutter \
+    FLUTTER_VERSION=3.27.4 \
+    JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 \
+    PATH="/opt/flutter/bin:/opt/flutter/bin/cache/dart-sdk/bin:/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools:${PATH}"
+
+ARG API_BASE_URL=https://5on0mm6m5d.execute-api.ap-south-1.amazonaws.com
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates curl git unzip xz-utils zip \
+      openjdk-17-jdk-headless \
+      libglu1-mesa \
+      clang cmake ninja-build pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p ${ANDROID_HOME}/cmdline-tools \
+ && curl -fsSL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip \
+      -o /tmp/cmdtools.zip \
+ && unzip -q /tmp/cmdtools.zip -d ${ANDROID_HOME}/cmdline-tools \
+ && mv ${ANDROID_HOME}/cmdline-tools/cmdline-tools ${ANDROID_HOME}/cmdline-tools/latest \
+ && rm /tmp/cmdtools.zip
+
+RUN yes | sdkmanager --licenses >/dev/null \
+ && sdkmanager --install \
+      "platform-tools" \
+      "platforms;android-35" \
+      "build-tools;35.0.0" \
+      "ndk;27.0.12077973" \
+      "cmake;3.22.1"
+
+RUN git clone --depth 1 --branch ${FLUTTER_VERSION} \
+      https://github.com/flutter/flutter.git ${FLUTTER_HOME} \
+ && git config --global --add safe.directory ${FLUTTER_HOME} \
+ && flutter config --no-analytics \
+ && flutter precache --android
+
+WORKDIR /app
+
+COPY pubspec.yaml pubspec.lock ./
+RUN flutter pub get
+
+COPY . .
+RUN flutter pub get \
+ && flutter build apk --release \
+      --dart-define=API_BASE_URL=${API_BASE_URL} \
+ && mkdir -p /out \
+ && cp build/app/outputs/flutter-apk/app-release.apk /out/swaeq-senior.apk \
+ && ls -lh /out/swaeq-senior.apk
+
+CMD ["ls", "-lh", "/out/swaeq-senior.apk"]

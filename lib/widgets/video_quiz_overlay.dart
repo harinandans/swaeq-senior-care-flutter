@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../models/video_quiz_config.dart';
@@ -28,6 +29,7 @@ typedef QuizDismissedCallback = void Function({
 /// - Clear visual feedback
 /// - Accessible semantics
 /// - Skip option always available
+/// - Text-to-speech for question and options
 class VideoQuizOverlay extends StatefulWidget {
   const VideoQuizOverlay({
     super.key,
@@ -49,6 +51,11 @@ class _VideoQuizOverlayState extends State<VideoQuizOverlay>
   late AnimationController _feedbackController;
   late Animation<double> _feedbackAnimation;
 
+  // TTS
+  FlutterTts? _tts;
+  bool _ttsInitialized = false;
+  bool _ttsSpeaking = false;
+
   @override
   void initState() {
     super.initState();
@@ -60,16 +67,85 @@ class _VideoQuizOverlayState extends State<VideoQuizOverlay>
       parent: _feedbackController,
       curve: Curves.easeOut,
     );
+    _initTts();
+  }
+
+  Future<void> _initTts() async {
+    try {
+      _tts = FlutterTts();
+      await _tts!.setLanguage('en-US');
+      await _tts!.setSpeechRate(0.45); // Slower for seniors
+      await _tts!.setVolume(1.0);
+      await _tts!.setPitch(1.0);
+
+      _tts!.setStartHandler(() {
+        if (mounted) setState(() => _ttsSpeaking = true);
+      });
+
+      _tts!.setCompletionHandler(() {
+        if (mounted) setState(() => _ttsSpeaking = false);
+      });
+
+      _tts!.setCancelHandler(() {
+        if (mounted) setState(() => _ttsSpeaking = false);
+      });
+
+      _tts!.setErrorHandler((msg) {
+        if (mounted) setState(() => _ttsSpeaking = false);
+      });
+
+      _ttsInitialized = true;
+
+      // Speak the question and options on overlay appear
+      _speakQuizContent();
+    } catch (e) {
+      // TTS not available on this device; continue silently
+      debugPrint('TTS init failed: $e');
+    }
+  }
+
+  Future<void> _speakQuizContent() async {
+    if (!_ttsInitialized || _tts == null) return;
+
+    final buffer = StringBuffer();
+    buffer.writeln('Quiz question:');
+    buffer.writeln(widget.config.question);
+    buffer.writeln('Options:');
+
+    for (final option in widget.config.options) {
+      buffer.writeln('${option.id.toUpperCase()}: ${option.text}');
+    }
+
+    try {
+      await _tts!.speak(buffer.toString());
+    } catch (e) {
+      debugPrint('TTS speak failed: $e');
+    }
+  }
+
+  Future<void> _stopTts() async {
+    if (_tts != null) {
+      try {
+        await _tts!.stop();
+      } catch (e) {
+        debugPrint('TTS stop failed: $e');
+      }
+    }
+    if (mounted) setState(() => _ttsSpeaking = false);
   }
 
   @override
   void dispose() {
+    _stopTts();
+    _tts?.stop();
     _feedbackController.dispose();
     super.dispose();
   }
 
   void _selectOption(String optionId) {
     if (_state != QuizState.awaiting) return;
+
+    _stopTts(); // Stop TTS on answer selection
 
     setState(() {
       _selectedOptionId = optionId;
@@ -79,6 +155,7 @@ class _VideoQuizOverlayState extends State<VideoQuizOverlay>
   }
 
   void _skip() {
+    _stopTts(); // Stop TTS on skip
     widget.onDismissed(
       skipped: true,
       selectedOptionId: null,
@@ -87,6 +164,7 @@ class _VideoQuizOverlayState extends State<VideoQuizOverlay>
   }
 
   void _continue() {
+    _stopTts(); // Stop TTS on continue
     final selected = widget.config.options
         .where((o) => o.id == _selectedOptionId)
         .firstOrNull;
@@ -167,6 +245,24 @@ class _VideoQuizOverlayState extends State<VideoQuizOverlay>
           ),
         ),
         const Spacer(),
+        // Read aloud button (on-demand TTS)
+        if (_ttsInitialized && _state == QuizState.awaiting)
+          Semantics(
+            button: true,
+            label: _ttsSpeaking ? 'Stop reading' : 'Read question aloud',
+            child: IconButton(
+              onPressed: _ttsSpeaking ? _stopTts : _speakQuizContent,
+              icon: Icon(
+                _ttsSpeaking ? Icons.stop_rounded : Icons.volume_up_rounded,
+                color: Colors.white70,
+                size: 26,
+              ),
+              style: IconButton.styleFrom(
+                minimumSize: const Size(56, 56),
+              ),
+              tooltip: _ttsSpeaking ? 'Stop' : 'Read aloud',
+            ),
+          ),
         Semantics(
           button: true,
           label: 'Skip quiz and continue video',

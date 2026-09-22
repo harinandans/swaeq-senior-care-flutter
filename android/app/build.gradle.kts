@@ -7,7 +7,7 @@ plugins {
 
 android {
     namespace = "com.vidarka.swaeq_senior"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 36
     // No native (C/C++) sources in this app or its plugins, so the NDK is not
     // needed. Leaving it unset keeps Gradle from downloading ~2.5 GB of SDK.
 
@@ -27,7 +27,8 @@ android {
         applicationId = "com.vidarka.swaeq_senior"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        // flutter_tts requires minSdk 24
+        minSdk = 24
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName

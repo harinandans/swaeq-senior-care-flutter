@@ -77,6 +77,59 @@ static const List<VideoQuizConfig> quizzes = [
 - Clear visual feedback for correct/incorrect answers
 - Skip option always available
 - Accessible semantics for screen readers
+- **Text-to-Speech:** Question and options read aloud automatically; tap speaker icon to re-read
+
+## Video Player Improvements (QA Items)
+
+### 1. End-of-Video Buffering Fix
+
+**Issue:** Buffering spinner flashed in the last ~2 seconds of videos (e.g., Panchang content).
+
+**Fix:** The buffering indicator is now suppressed when:
+- Video position is within 2 seconds of duration
+- Video has completed playback
+- Quiz overlay or completion overlay is visible
+
+**Verify:** Play any short video to completion — no spinner flash in the final moments.
+
+### 2. Post-Video Completion Overlay
+
+**Issue:** Users were stranded after catch-up videos finished with no clear next action.
+
+**Fix:** A senior-friendly completion overlay now appears when video ends, offering:
+- **Back to Today** (primary action) — returns to the timeline
+- **Play Next** (if API provides nextContentId) — plays the next video
+- **Replay** — restarts the current video
+
+**Verify:** Watch any video to completion — the overlay appears with large, clear buttons.
+
+### 3. Left-Center Return Button
+
+**Issue:** Tech preferred the earlier left-center return button over the top-right X.
+
+**Fix:** A large (56dp) left-center arrow-back button replaces the top-right X close button when controls are visible. The button has:
+- Black semi-transparent background
+- Large touch target
+- Accessibility label "Return to previous screen"
+
+**Verify:** During video playback, tap to show controls — the return button is on the left side, vertically centered.
+
+### 4. Quiz Text-to-Speech (TTS)
+
+**Feature:** Quiz overlay now reads the question and all options aloud using Flutter TTS.
+
+**Behavior:**
+- TTS starts automatically when quiz appears
+- Speech rate is slower (0.45) for senior comprehension
+- Speaker icon in header allows on-demand re-read
+- TTS stops immediately on: Skip, answer selection, Continue, or overlay dismiss
+
+**Verify:** Trigger the Pranayama quiz at 15s — the question and options are read aloud. Tap the speaker icon to re-read. Select an answer — TTS stops.
+
+## Testing Notes
+
+- **Time-lock disabled:** `AppConfig.lockFutureSlotsByTime = false` — all timeline tiles are active for testing. Do NOT re-enable.
+- **Mock videos:** If API content unavailable, mock videos from CloudFront are used as fallback.
 
 Package id: `com.vidarka.swaeq_senior`
 

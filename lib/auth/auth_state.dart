@@ -20,20 +20,38 @@ class AuthState extends ChangeNotifier {
   bool elderlyMode = true; // senior app always uses larger type
 
   Future<void> bootstrap() async {
-    await session.load();
+    try {
+      await session.load().timeout(
+        const Duration(seconds: 5),
+        onTimeout: () {
+          debugPrint('session.load() timed out after 5s');
+        },
+      );
+    } catch (e) {
+      debugPrint('session.load() failed: $e');
+    }
+    
     if (session.hasSession) {
       try {
         me = await api.me();
         elderlyMode = true;
-        // Notification registration is non-critical; don't block or crash on failure
         _registerNotificationsAsync();
       } catch (_) {
-        await session.clear();
+        try {
+          await session.clear();
+        } catch (_) {}
         me = null;
       }
     }
     ready = true;
     notifyListeners();
+  }
+
+  void markReadyOnError() {
+    if (!ready) {
+      ready = true;
+      notifyListeners();
+    }
   }
 
   /// Register notifications asynchronously without blocking startup.

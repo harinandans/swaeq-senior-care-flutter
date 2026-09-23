@@ -106,8 +106,13 @@ class NotificationService {
 
   Future<void> _configureLocalTimezone() async {
     try {
-      // flutter_timezone ≤4.1 returns String; newer returns TimezoneInfo.
-      final dynamic info = await FlutterTimezone.getLocalTimezone();
+      final dynamic info = await FlutterTimezone.getLocalTimezone().timeout(
+        const Duration(seconds: 3),
+        onTimeout: () {
+          debugPrint('FlutterTimezone.getLocalTimezone() timed out');
+          return 'Asia/Kolkata';
+        },
+      );
       final name = info is String
           ? info
           : (info.identifier as String? ?? info.toString());

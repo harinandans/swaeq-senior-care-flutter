@@ -25,8 +25,8 @@ class AuthState extends ChangeNotifier {
       try {
         me = await api.me();
         elderlyMode = true;
-        await NotificationService.instance.registerWithApi(api);
-        await NotificationService.instance.syncFromApi(api);
+        // Notification registration is non-critical; don't block or crash on failure
+        _registerNotificationsAsync();
       } catch (_) {
         await session.clear();
         me = null;
@@ -34,6 +34,18 @@ class AuthState extends ChangeNotifier {
     }
     ready = true;
     notifyListeners();
+  }
+
+  /// Register notifications asynchronously without blocking startup.
+  void _registerNotificationsAsync() {
+    Future(() async {
+      try {
+        await NotificationService.instance.registerWithApi(api);
+        await NotificationService.instance.syncFromApi(api);
+      } catch (e) {
+        debugPrint('Notification registration skipped: $e');
+      }
+    });
   }
 
   bool get isLoggedIn => session.hasSession;
@@ -53,8 +65,8 @@ class AuthState extends ChangeNotifier {
       await api.updatePreferences({'elderlyMode': true});
       me = await api.me();
     } catch (_) {}
-    await NotificationService.instance.registerWithApi(api);
-    await NotificationService.instance.syncFromApi(api);
+    // Notification registration is non-critical; don't block or crash on failure
+    _registerNotificationsAsync();
     notifyListeners();
   }
 

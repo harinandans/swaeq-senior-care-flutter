@@ -23,49 +23,85 @@ class NotificationService {
 
   Future<void> init() async {
     if (_ready) return;
-    tzdata.initializeTimeZones();
-    await _configureLocalTimezone();
+    try {
+      tzdata.initializeTimeZones();
+      await _configureLocalTimezone();
 
-    const android = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const ios = DarwinInitializationSettings(
-      requestAlertPermission: true,
-      requestBadgePermission: true,
-      requestSoundPermission: true,
-    );
-    await _plugin.initialize(
-      const InitializationSettings(android: android, iOS: ios),
-    );
+      const android = AndroidInitializationSettings('@mipmap/ic_launcher');
+      const ios = DarwinInitializationSettings(
+        requestAlertPermission: true,
+        requestBadgePermission: true,
+        requestSoundPermission: true,
+      );
+      await _plugin.initialize(
+        const InitializationSettings(android: android, iOS: ios),
+      );
 
-    final androidPlugin = _plugin.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>();
-    await androidPlugin?.requestNotificationsPermission();
-    // Android 12+: exact alarms required for reliable reminder times.
-    await androidPlugin?.requestExactAlarmsPermission();
-    if (Platform.isAndroid) {
-      final notif = await Permission.notification.status;
-      if (!notif.isGranted) await Permission.notification.request();
-      final alarm = await Permission.scheduleExactAlarm.status;
-      if (!alarm.isGranted) await Permission.scheduleExactAlarm.request();
+      final androidPlugin = _plugin.resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
+
+      // Create notification channels first (non-blocking, no permission needed)
+      await androidPlugin?.createNotificationChannel(
+        const AndroidNotificationChannel(
+          'swaeq_reminders',
+          'Reminders',
+          description: 'Medicine, water, food and care reminders',
+          importance: Importance.high,
+        ),
+      );
+      await androidPlugin?.createNotificationChannel(
+        const AndroidNotificationChannel(
+          'swaeq_general',
+          'Updates',
+          description: 'Journey, doctor and account updates',
+          importance: Importance.defaultImportance,
+        ),
+      );
+
+      _ready = true;
+
+      // Request permissions asynchronously AFTER marking ready.
+      // This prevents blocking app startup if permission dialogs hang.
+      _requestPermissionsAsync(androidPlugin);
+    } catch (e) {
+      debugPrint('NotificationService.init failed: $e');
+      // Mark as ready anyway so app can continue without notifications
+      _ready = true;
     }
+  }
 
-    await androidPlugin?.createNotificationChannel(
-      const AndroidNotificationChannel(
-        'swaeq_reminders',
-        'Reminders',
-        description: 'Medicine, water, food and care reminders',
-        importance: Importance.high,
-      ),
-    );
-    await androidPlugin?.createNotificationChannel(
-      const AndroidNotificationChannel(
-        'swaeq_general',
-        'Updates',
-        description: 'Journey, doctor and account updates',
-        importance: Importance.defaultImportance,
-      ),
-    );
+  /// Request notification permissions asynchronously without blocking startup.
+  Future<void> _requestPermissionsAsync(
+    AndroidFlutterLocalNotificationsPlugin? androidPlugin,
+  ) async {
+    try {
+      // Small delay to let the UI render first
+      await Future.delayed(const Duration(milliseconds: 500));
 
-    _ready = true;
+      if (Platform.isAndroid) {
+        // Request notification permission
+        try {
+          final notif = await Permission.notification.status;
+          if (!notif.isGranted) {
+            await Permission.notification.request();
+          }
+        } catch (e) {
+          debugPrint('Notification permission request failed: $e');
+        }
+
+        // Request exact alarm permission (Android 12+)
+        try {
+          final alarm = await Permission.scheduleExactAlarm.status;
+          if (!alarm.isGranted) {
+            await Permission.scheduleExactAlarm.request();
+          }
+        } catch (e) {
+          debugPrint('Exact alarm permission request failed: $e');
+        }
+      }
+    } catch (e) {
+      debugPrint('Permission requests failed: $e');
+    }
   }
 
   Future<void> _configureLocalTimezone() async {

@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../api/api_client.dart';
 import '../config.dart';
 import '../auth/auth_state.dart';
+import '../services/lazy_tts_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
 
@@ -245,8 +246,35 @@ class _TodayScreenState extends State<TodayScreen> {
       if (!_revealed) {
         _revealed = true;
         WidgetsBinding.instance.addPostFrameCallback((_) => _revealNow());
+        _initTtsLazily();
       }
     }
+  }
+
+  /// Initialize TTS lazily after home screen is visible.
+  /// Shows toast if TTS is unavailable; hides speaker button session-wide.
+  void _initTtsLazily() {
+    final tts = LazyTtsService.instance;
+    if (tts.status != TtsStatus.notInitialized) return;
+    
+    Future(() async {
+      await Future.delayed(const Duration(milliseconds: 500));
+      if (!mounted) return;
+      
+      final success = await tts.initialize(timeoutMs: 5000);
+      if (!mounted) return;
+      
+      if (!success) {
+        final reason = tts.failureReason ?? 'unknown error';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Voice read-aloud unavailable: $reason'),
+            duration: const Duration(seconds: 4),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    });
   }
 
   /// The list only materialises the rows it can see, so the current activity

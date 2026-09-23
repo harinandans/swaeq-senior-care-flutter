@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../models/video_quiz_config.dart';
+import '../services/lazy_tts_service.dart';
 import '../theme/app_theme.dart';
 
 /// State of the quiz interaction.
@@ -28,6 +29,7 @@ typedef QuizDismissedCallback = void Function({
 /// - Clear visual feedback
 /// - Accessible semantics
 /// - Skip option always available
+/// - Text-to-speech for question and options (if TTS available)
 class VideoQuizOverlay extends StatefulWidget {
   const VideoQuizOverlay({
     super.key,
@@ -49,6 +51,9 @@ class _VideoQuizOverlayState extends State<VideoQuizOverlay>
   late AnimationController _feedbackController;
   late Animation<double> _feedbackAnimation;
 
+  bool _ttsSpeaking = false;
+  bool get _ttsAvailable => LazyTtsService.instance.isAvailable;
+
   @override
   void initState() {
     super.initState();
@@ -60,16 +65,60 @@ class _VideoQuizOverlayState extends State<VideoQuizOverlay>
       parent: _feedbackController,
       curve: Curves.easeOut,
     );
+    _setupTts();
+  }
+
+  void _setupTts() {
+    if (!_ttsAvailable) return;
+    
+    LazyTtsService.instance.setCallbacks(
+      onStart: () {
+        if (mounted) setState(() => _ttsSpeaking = true);
+      },
+      onDone: () {
+        if (mounted) setState(() => _ttsSpeaking = false);
+      },
+      onError: (msg) {
+        debugPrint('TTS error: $msg');
+        if (mounted) setState(() => _ttsSpeaking = false);
+      },
+    );
+    
+    _speakQuizContent();
+  }
+
+  Future<void> _speakQuizContent() async {
+    if (!_ttsAvailable) return;
+
+    final buffer = StringBuffer();
+    buffer.writeln('Quiz question:');
+    buffer.writeln(widget.config.question);
+    buffer.writeln('Options:');
+
+    for (final option in widget.config.options) {
+      buffer.writeln('${option.id.toUpperCase()}: ${option.text}');
+    }
+
+    await LazyTtsService.instance.speak(buffer.toString());
+  }
+
+  Future<void> _stopTts() async {
+    await LazyTtsService.instance.stop();
+    if (mounted) setState(() => _ttsSpeaking = false);
   }
 
   @override
   void dispose() {
+    _stopTts();
+    LazyTtsService.instance.clearCallbacks();
     _feedbackController.dispose();
     super.dispose();
   }
 
   void _selectOption(String optionId) {
     if (_state != QuizState.awaiting) return;
+
+    _stopTts();
 
     setState(() {
       _selectedOptionId = optionId;
@@ -79,6 +128,7 @@ class _VideoQuizOverlayState extends State<VideoQuizOverlay>
   }
 
   void _skip() {
+    _stopTts();
     widget.onDismissed(
       skipped: true,
       selectedOptionId: null,
@@ -87,6 +137,7 @@ class _VideoQuizOverlayState extends State<VideoQuizOverlay>
   }
 
   void _continue() {
+    _stopTts();
     final selected = widget.config.options
         .where((o) => o.id == _selectedOptionId)
         .firstOrNull;
@@ -167,6 +218,24 @@ class _VideoQuizOverlayState extends State<VideoQuizOverlay>
           ),
         ),
         const Spacer(),
+        // Read aloud button (only if TTS is available)
+        if (_ttsAvailable && _state == QuizState.awaiting)
+          Semantics(
+            button: true,
+            label: _ttsSpeaking ? 'Stop reading' : 'Read question aloud',
+            child: IconButton(
+              onPressed: _ttsSpeaking ? _stopTts : _speakQuizContent,
+              icon: Icon(
+                _ttsSpeaking ? Icons.stop_rounded : Icons.volume_up_rounded,
+                color: Colors.white70,
+                size: 26,
+              ),
+              style: IconButton.styleFrom(
+                minimumSize: const Size(56, 56),
+              ),
+              tooltip: _ttsSpeaking ? 'Stop' : 'Read aloud',
+            ),
+          ),
         Semantics(
           button: true,
           label: 'Skip quiz and continue video',

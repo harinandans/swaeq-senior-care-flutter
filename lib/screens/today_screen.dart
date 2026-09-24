@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../api/api_client.dart';
 import '../config.dart';
 import '../auth/auth_state.dart';
+import '../mock_timeline.dart';
 import '../services/lazy_tts_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
@@ -237,9 +238,11 @@ class _TodayScreenState extends State<TodayScreen> {
       _error = null;
     });
     try {
-      _data = await context.read<AuthState>().api.seniorToday();
+      final apiData = await context.read<AuthState>().api.seniorToday();
+      _data = MockTimeline.withFallback(apiData);
     } on ApiException catch (e) {
-      _error = e.message;
+      _data = MockTimeline.generateDaySchedule();
+      debugPrint('API error, using mock timeline: ${e.message}');
     } finally {
       if (!mounted) return;
       setState(() => _loading = false);
@@ -334,6 +337,7 @@ class _TodayScreenState extends State<TodayScreen> {
     final quizId = slot['quizId']?.toString();
     final kind = slot['mediaKind']?.toString() ?? '';
     final slotId = slot['id']?.toString();
+    final hasLocalStream = (slot['streamUrl']?.toString() ?? '').isNotEmpty;
 
     if (kind == 'quiz' && quizId != null && quizId.isNotEmpty) {
       context.push('/quiz/$quizId');
@@ -341,9 +345,17 @@ class _TodayScreenState extends State<TodayScreen> {
     }
 
     // Play whatever the CMS scheduled for this slot (content library → /play).
+    // If slot has a mock streamUrl, use mock=1 to skip API and use mock videos.
     if (contentId != null && contentId.isNotEmpty) {
       final title = Uri.encodeComponent(slot['title']?.toString() ?? 'Watch');
-      context.push('/watch/$contentId?title=$title');
+      final mockParam = hasLocalStream ? '&mock=1' : '';
+      context.push('/watch/$contentId?title=$title$mockParam');
+      return;
+    }
+    // Fallback: try slotId as contentId for mock videos
+    if (slotId != null && slotId.isNotEmpty && hasLocalStream) {
+      final title = Uri.encodeComponent(slot['title']?.toString() ?? 'Watch');
+      context.push('/watch/$slotId?title=$title&mock=1');
       return;
     }
     if (!_isDone(slot)) _complete(slot);

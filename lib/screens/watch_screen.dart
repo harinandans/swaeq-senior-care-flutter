@@ -245,6 +245,29 @@ class _WatchScreenState extends State<WatchScreen> {
   }
 
   Future<void> _load() async {
+    // If preferMock is set, try mock videos first (skip API call)
+    if (widget.preferMock) {
+      final mockUrl = MockVideos.urlFor(
+        contentId: widget.contentId,
+        slotId: widget.contentId,
+      );
+      if (mockUrl != null) {
+        try {
+          _title = widget.titleHint ?? widget.contentId;
+          _kind = 'video';
+          await _playStream(mockUrl, title: _title);
+          if (!mounted) return;
+          setState(() {
+            _error = null;
+            _loading = false;
+          });
+          return;
+        } catch (e) {
+          debugPrint('Mock video failed: $e');
+        }
+      }
+    }
+    
     try {
       final r = await context
           .read<AuthState>()

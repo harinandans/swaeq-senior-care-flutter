@@ -9,6 +9,7 @@ import '../api/api_client.dart';
 import '../config.dart';
 import '../auth/auth_state.dart';
 import '../mock_timeline.dart';
+import '../services/local_store.dart';
 import '../services/lazy_tts_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
@@ -110,7 +111,14 @@ String _bgAssetFor(Map<String, dynamic> slot) {
 }
 
 class TodayScreen extends StatefulWidget {
-  const TodayScreen({super.key});
+  const TodayScreen({
+    super.key,
+    this.scrollToNextIncomplete = false,
+    this.afterSlotId,
+  });
+
+  final bool scrollToNextIncomplete;
+  final String? afterSlotId;
 
   @override
   State<TodayScreen> createState() => _TodayScreenState();
@@ -121,6 +129,7 @@ class _TodayScreenState extends State<TodayScreen> {
   bool _loading = true;
   String? _error;
   final _nowKey = GlobalKey();
+  final _slotKeys = <String, GlobalKey>{};
   final _scroll = ScrollController();
   bool _revealed = false;
 
@@ -128,6 +137,18 @@ class _TodayScreenState extends State<TodayScreen> {
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant TodayScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.scrollToNextIncomplete &&
+        (oldWidget.scrollToNextIncomplete != widget.scrollToNextIncomplete ||
+            oldWidget.afterSlotId != widget.afterSlotId)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _scrollToNextIncomplete(afterSlotId: widget.afterSlotId);
+      });
+    }
   }
 
   @override
@@ -243,14 +264,79 @@ class _TodayScreenState extends State<TodayScreen> {
     } on ApiException catch (e) {
       _data = MockTimeline.generateDaySchedule();
       debugPrint('API error, using mock timeline: ${e.message}');
-    } finally {
-      if (!mounted) return;
-      setState(() => _loading = false);
-      if (!_revealed) {
-        _revealed = true;
-        WidgetsBinding.instance.addPostFrameCallback((_) => _revealNow());
-        _initTtsLazily();
+    }
+    await _mergeLocalCompletion();
+    if (!mounted) return;
+    setState(() => _loading = false);
+    if (!_revealed) {
+      _revealed = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (widget.scrollToNextIncomplete) {
+          _scrollToNextIncomplete(afterSlotId: widget.afterSlotId);
+        } else {
+          _revealNow();
+        }
+      });
+      _initTtsLazily();
+    } else if (widget.scrollToNextIncomplete) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _scrollToNextIncomplete(afterSlotId: widget.afterSlotId);
+      });
+    }
+  }
+
+  Future<void> _mergeLocalCompletion() async {
+    final date = _data?['date']?.toString();
+    if (date == null || _data == null) return;
+    final slots =
+        List<Map<String, dynamic>>.from(_data!['slots'] as List? ?? []);
+    for (final slot in slots) {
+      final id = slot['id']?.toString();
+      if (id != null && await LocalStore.instance.isSlotDone(date, id)) {
+        slot['status'] = 'done';
       }
+    }
+    _data!['slots'] = slots;
+  }
+
+  Future<void> _scrollToNextIncomplete({String? afterSlotId}) async {
+    final slots =
+        List<Map<String, dynamic>>.from(_data?['slots'] as List? ?? []);
+    var passedAnchor = afterSlotId == null || afterSlotId.isEmpty;
+    GlobalKey? targetKey;
+    for (final slot in slots) {
+      final id = slot['id']?.toString() ?? '';
+      if (!passedAnchor) {
+        if (id == afterSlotId) passedAnchor = true;
+        continue;
+      }
+      if (!_isDone(slot) && (slot['contentId']?.toString().isNotEmpty == true ||
+          slot['mediaKind']?.toString() == 'video')) {
+        targetKey = _slotKeys[id];
+        break;
+      }
+    }
+    if (targetKey == null) {
+      await _revealNow();
+      return;
+    }
+    for (var step = 0; step < 40; step++) {
+      final ctx = targetKey.currentContext;
+      if (ctx != null) {
+        await Scrollable.ensureVisible(
+          ctx,
+          duration: const Duration(milliseconds: 350),
+          alignment: 0.15,
+        );
+        return;
+      }
+      if (!mounted || !_scroll.hasClients) return;
+      final pos = _scroll.position;
+      _scroll.jumpTo(math.min(
+        pos.pixels + pos.viewportDimension * 0.85,
+        pos.maxScrollExtent,
+      ));
+      await WidgetsBinding.instance.endOfFrame;
     }
   }
 
@@ -316,16 +402,19 @@ class _TodayScreenState extends State<TodayScreen> {
       _lockedToast(slot);
       return;
     }
+    final date = _data?['date']?.toString() ?? '';
+    final slotId = slot['id'].toString();
+    await LocalStore.instance.markSlotDone(date, slotId);
     try {
       await context.read<AuthState>().api.completeSeniorSlot(
-            slot['id'].toString(),
-            date: _data?['date']?.toString(),
+            slotId,
+            date: date.isEmpty ? null : date,
             skipped: skipped,
           );
-      await _load();
     } on ApiException catch (e) {
       if (mounted) showAppToast(context, e.message);
     }
+    await _load();
   }
 
   void _openSlot(Map<String, dynamic> slot) {
@@ -346,16 +435,25 @@ class _TodayScreenState extends State<TodayScreen> {
 
     // Play whatever the CMS scheduled for this slot (content library → /play).
     // If slot has a mock streamUrl, use mock=1 to skip API and use mock videos.
+    final date = Uri.encodeComponent(_data?['date']?.toString() ?? '');
+    final slotQ = slotId != null ? '&slotId=${Uri.encodeComponent(slotId)}' : '';
+    const fromToday = '&fromToday=1';
+    final dateQ = date.isNotEmpty ? '&date=$date' : '';
+
     if (contentId != null && contentId.isNotEmpty) {
       final title = Uri.encodeComponent(slot['title']?.toString() ?? 'Watch');
       final mockParam = hasLocalStream ? '&mock=1' : '';
-      context.push('/watch/$contentId?title=$title$mockParam');
+      context.push(
+        '/watch/$contentId?title=$title$mockParam$slotQ$dateQ$fromToday',
+      );
       return;
     }
     // Fallback: try slotId as contentId for mock videos
     if (slotId != null && slotId.isNotEmpty && hasLocalStream) {
       final title = Uri.encodeComponent(slot['title']?.toString() ?? 'Watch');
-      context.push('/watch/$slotId?title=$title&mock=1');
+      context.push(
+        '/watch/$slotId?title=$title&mock=1$slotQ$dateQ$fromToday',
+      );
       return;
     }
     if (!_isDone(slot)) _complete(slot);
@@ -436,10 +534,12 @@ class _TodayScreenState extends State<TodayScreen> {
         nowLinePlaced = true;
       }
 
+      final slotId = slot['id']?.toString() ?? 'slot_$i';
+      final rowKey = _slotKeys.putIfAbsent(slotId, GlobalKey.new);
+
       rows.add(
         _TimelineRow(
-          // Anchor the opening scroll on the activity happening right now.
-          key: i == currentIndex ? _nowKey : null,
+          key: i == currentIndex ? _nowKey : rowKey,
           slot: slot,
           phase: _phaseOf(slot, i, currentIndex),
           timeLabel: _clock(startMins),

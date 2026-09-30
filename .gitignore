@@ -35,6 +35,10 @@ migrate_working_dir/
 /coverage/
 android/local.properties
 android/.gradle/
+android/build/
+
+# Local Origin sync markers, not source.
+.origin-*
 
 # Symbolication related
 app.*.symbols

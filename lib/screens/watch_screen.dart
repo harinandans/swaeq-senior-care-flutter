@@ -8,13 +8,18 @@ import 'package:provider/provider.dart';
 import 'package:video_player/video_player.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
+import 'package:share_plus/share_plus.dart';
+
 import '../api/api_client.dart';
 import '../auth/auth_state.dart';
 import '../mock_videos.dart';
 import '../models/video_quiz_config.dart';
+import '../services/local_store.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
+import '../widgets/post_video_engagement_sheet.dart';
 import '../widgets/video_quiz_overlay.dart';
+import '../widgets/video_reaction_bar.dart';
 
 class WatchScreen extends StatefulWidget {
   const WatchScreen({
@@ -22,10 +27,16 @@ class WatchScreen extends StatefulWidget {
     required this.contentId,
     this.preferMock = false,
     this.titleHint,
+    this.slotId,
+    this.timelineDate,
+    this.fromToday = false,
   });
   final String contentId;
   final bool preferMock;
   final String? titleHint;
+  final String? slotId;
+  final String? timelineDate;
+  final bool fromToday;
 
   @override
   State<WatchScreen> createState() => _WatchScreenState();
@@ -60,6 +71,13 @@ class _WatchScreenState extends State<WatchScreen> {
   /// Whether the video has completed playback.
   bool _videoCompleted = false;
 
+  bool _markedTimelineDone = false;
+  bool _engagementSheetShown = false;
+  bool _finishHandled = false;
+  Map<String, int> _reactionCounts = {};
+  bool _liked = false;
+  String _comment = '';
+
   /// Next content ID for "Play next" functionality.
   String? _nextContentId;
   String? _nextContentTitle;
@@ -67,7 +85,23 @@ class _WatchScreenState extends State<WatchScreen> {
   @override
   void initState() {
     super.initState();
+    _loadEngagement();
     _load();
+  }
+
+  Future<void> _loadEngagement() async {
+    final e = await LocalStore.instance.getEngagement(widget.contentId);
+    if (!mounted) return;
+    setState(() {
+      _liked = e['liked'] == true;
+      _comment = e['comment']?.toString() ?? '';
+      _reactionCounts = Map<String, int>.from(
+        (e['reactions'] as Map?)?.map(
+              (k, v) => MapEntry(k.toString(), (v as num).toInt()),
+            ) ??
+            {},
+      );
+    });
   }
 
   Future<void> _enterPortraitImmersive() async {
@@ -163,6 +197,74 @@ class _WatchScreenState extends State<WatchScreen> {
         _showControls = false;
       });
       _hideControlsTimer?.cancel();
+      _onVideoFinished();
+    }
+  }
+
+  Future<void> _onVideoFinished() async {
+    if (_finishHandled) return;
+    _finishHandled = true;
+    await _markTimelineDoneIfNeeded();
+    if (!mounted || _engagementSheetShown) return;
+    _engagementSheetShown = true;
+    await showPostVideoEngagementSheet(
+      context: context,
+      title: _title ?? widget.titleHint ?? '',
+      initialLiked: _liked,
+      initialComment: _comment,
+      onSave: (liked, comment) async {
+        _liked = liked;
+        _comment = comment;
+        await LocalStore.instance.setLiked(widget.contentId, liked);
+        await LocalStore.instance.setComment(widget.contentId, comment);
+        final api = context.read<AuthState>().api;
+        await api.submitContentEngagement(
+          widget.contentId,
+          liked: liked,
+          comment: comment,
+          reactions: _reactionCounts,
+        );
+      },
+    );
+  }
+
+  Future<void> _markTimelineDoneIfNeeded() async {
+    if (_markedTimelineDone) return;
+    _markedTimelineDone = true;
+    final slotId = widget.slotId;
+    final date = widget.timelineDate;
+    if (slotId != null && slotId.isNotEmpty && date != null && date.isNotEmpty) {
+      await LocalStore.instance.markSlotDone(date, slotId);
+      try {
+        await context.read<AuthState>().api.completeSeniorSlot(
+              slotId,
+              date: date,
+            );
+      } catch (e) {
+        debugPrint('completeSeniorSlot failed: $e');
+      }
+    }
+  }
+
+  Future<void> _onReaction(String id) async {
+    await LocalStore.instance.bumpReaction(widget.contentId, id);
+    await _loadEngagement();
+  }
+
+  Future<void> _shareVideo() async {
+    final title = _title ?? widget.titleHint ?? 'SwaEQ Care video';
+    final link =
+        'https://care.swaeq.app/watch/${Uri.encodeComponent(widget.contentId)}';
+    final text = '$title\n$link\n(SwaEQ Senior Care)';
+    await Share.share(text, subject: title);
+  }
+
+  void _backToTodayWithFocus() {
+    if (widget.fromToday && widget.slotId != null) {
+      final slot = Uri.encodeComponent(widget.slotId!);
+      context.go('/today?scrollToNext=1&afterSlot=$slot');
+    } else {
+      context.go('/today');
     }
   }
 
@@ -601,6 +703,14 @@ class _WatchScreenState extends State<WatchScreen> {
                 config: _videoQuizConfig!,
                 onDismissed: _onQuizDismissed,
               ),
+            if (!_videoCompleted &&
+                !_showQuizOverlay &&
+                _video != null &&
+                _video!.value.isInitialized)
+              VideoReactionBar(
+                counts: _reactionCounts,
+                onReaction: _onReaction,
+              ),
           ],
         ),
       ),
@@ -644,7 +754,31 @@ class _WatchScreenState extends State<WatchScreen> {
                   overflow: TextOverflow.ellipsis,
                 ),
               ],
-              const SizedBox(height: 40),
+              const SizedBox(height: 24),
+              Semantics(
+                button: true,
+                label: 'Share video',
+                child: SizedBox(
+                  width: double.infinity,
+                  height: 56,
+                  child: OutlinedButton.icon(
+                    onPressed: _shareVideo,
+                    icon: const Icon(Icons.share_rounded, size: 26),
+                    label: Text(
+                      'Share',
+                      style: GoogleFonts.dmSans(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      side: const BorderSide(color: Colors.white54, width: 2),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
               // Primary action: Back to Today
               Semantics(
                 button: true,
@@ -653,7 +787,7 @@ class _WatchScreenState extends State<WatchScreen> {
                   width: double.infinity,
                   height: 64,
                   child: FilledButton.icon(
-                    onPressed: () => context.go('/today'),
+                    onPressed: _backToTodayWithFocus,
                     icon: const Icon(Icons.home_rounded, size: 28),
                     label: Text(
                       'Back to Today',
@@ -714,6 +848,8 @@ class _WatchScreenState extends State<WatchScreen> {
                 child: TextButton.icon(
                   onPressed: () {
                     _dismissCompletionOverlay();
+                    _finishHandled = false;
+                    _engagementSheetShown = false;
                     _video?.seekTo(Duration.zero);
                     _video?.play();
                     _quizTriggered = false; // Allow quiz to trigger again

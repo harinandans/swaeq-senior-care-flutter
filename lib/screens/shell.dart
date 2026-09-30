@@ -38,6 +38,11 @@ class AppShell extends StatelessWidget {
             label: 'Learn',
           ),
           NavigationDestination(
+            icon: Icon(Icons.extension_outlined),
+            selectedIcon: Icon(Icons.extension),
+            label: 'Games',
+          ),
+          NavigationDestination(
             icon: Icon(Icons.notifications_none),
             selectedIcon: Icon(Icons.notifications),
             label: 'Reminders',

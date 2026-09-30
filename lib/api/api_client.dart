@@ -187,6 +187,22 @@ class ApiClient {
   Future<Map<String, dynamic>> playSeniorContent(String id) =>
       get('/senior/content/$id/play');
 
+  /// Optional engagement sync; failures are ignored client-side.
+  Future<void> submitContentEngagement(
+    String contentId, {
+    bool? liked,
+    String? comment,
+    Map<String, int>? reactions,
+  }) async {
+    try {
+      await post('/senior/content/$contentId/engagement', {
+        if (liked != null) 'liked': liked,
+        if (comment != null) 'comment': comment,
+        if (reactions != null) 'reactions': reactions,
+      });
+    } catch (_) {}
+  }
+
   Future<Map<String, dynamic>> seniorReminders(String date) =>
       get('/senior/reminders', query: {'date': date});
   Future<Map<String, dynamic>> createSeniorReminder(

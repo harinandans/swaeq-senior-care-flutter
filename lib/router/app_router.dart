@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../auth/auth_state.dart';
@@ -11,6 +10,8 @@ import '../screens/reminders_screen.dart';
 import '../screens/shell.dart';
 import '../screens/today_screen.dart';
 import '../screens/watch_screen.dart';
+import '../games/games_hub_screen.dart';
+import '../games/game_play_screen.dart';
 
 GoRouter createRouter(AuthState auth) {
   return GoRouter(
@@ -35,12 +36,24 @@ GoRouter createRouter(AuthState auth) {
         branches: [
           StatefulShellBranch(
             routes: [
-              GoRoute(path: '/today', builder: (_, __) => const TodayScreen()),
+              GoRoute(
+                path: '/today',
+                builder: (_, state) => TodayScreen(
+                  scrollToNextIncomplete:
+                      state.uri.queryParameters['scrollToNext'] == '1',
+                  afterSlotId: state.uri.queryParameters['afterSlot'],
+                ),
+              ),
             ],
           ),
           StatefulShellBranch(
             routes: [
               GoRoute(path: '/learn', builder: (_, __) => const LearnScreen()),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(path: '/games', builder: (_, __) => const GamesHubScreen()),
             ],
           ),
           StatefulShellBranch(
@@ -66,6 +79,9 @@ GoRouter createRouter(AuthState auth) {
           contentId: state.pathParameters['id']!,
           preferMock: state.uri.queryParameters['mock'] == '1',
           titleHint: state.uri.queryParameters['title'],
+          slotId: state.uri.queryParameters['slotId'],
+          timelineDate: state.uri.queryParameters['date'],
+          fromToday: state.uri.queryParameters['fromToday'] == '1',
         ),
       ),
       GoRoute(
@@ -75,6 +91,12 @@ GoRouter createRouter(AuthState auth) {
       GoRoute(
         path: '/programs',
         builder: (_, __) => const ProgramsScreen(),
+      ),
+      GoRoute(
+        path: '/games/play/:id',
+        builder: (_, state) => GamePlayScreen(
+          gameId: state.pathParameters['id']!,
+        ),
       ),
     ],
   );

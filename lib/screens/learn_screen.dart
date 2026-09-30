@@ -16,7 +16,6 @@ class LearnScreen extends StatefulWidget {
 
 class _LearnScreenState extends State<LearnScreen> {
   Map<String, dynamic>? _home;
-  List<Map<String, dynamic>> _games = [];
   bool _loading = true;
   String? _error;
 
@@ -34,12 +33,6 @@ class _LearnScreenState extends State<LearnScreen> {
     try {
       final api = context.read<AuthState>().api;
       _home = await api.seniorHome();
-      try {
-        final g = await api.seniorGames();
-        _games = List<Map<String, dynamic>>.from(g['items'] as List? ?? []);
-      } catch (_) {
-        _games = [];
-      }
     } on ApiException catch (e) {
       _error = e.message;
     } finally {
@@ -84,7 +77,7 @@ class _LearnScreenState extends State<LearnScreen> {
                             ),
                           ),
                         ),
-                      if (rails.isEmpty && _games.isEmpty)
+                      if (rails.isEmpty)
                         const Padding(
                           padding: EdgeInsets.all(24),
                           child: Text(
@@ -122,37 +115,24 @@ class _LearnScreenState extends State<LearnScreen> {
                         ),
                         const SizedBox(height: 20),
                       ],
-                      if (_games.isNotEmpty) ...[
-                        const Text(
-                          'Brain & Fun Games',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w800,
-                            fontSize: 16,
-                            color: AppColors.brand900,
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: OutlinedButton.icon(
+                          onPressed: () => context.go('/games'),
+                          icon: const Icon(Icons.extension_outlined, size: 24),
+                          label: const Text(
+                            'Play brain games in the Games tab',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size.fromHeight(52),
+                            side: const BorderSide(color: AppColors.brand300),
                           ),
                         ),
-                        const SizedBox(height: 10),
-                        SizedBox(
-                          height: 168,
-                          child: ListView(
-                            scrollDirection: Axis.horizontal,
-                            children: [
-                              for (final item in _games)
-                                _ContentCard(
-                                  item: item,
-                                  onTap: () {
-                                    final quizId = item['quizId']?.toString();
-                                    if (quizId != null && quizId.isNotEmpty) {
-                                      context.push('/quiz/$quizId');
-                                    } else {
-                                      context.push('/watch/${item['id']}');
-                                    }
-                                  },
-                                ),
-                            ],
-                          ),
-                        ),
-                      ],
+                      ),
                     ],
                   ),
                 ),

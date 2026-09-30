@@ -47,6 +47,8 @@ class NotificationService {
           'Reminders',
           description: 'Medicine, water, food and care reminders',
           importance: Importance.high,
+          playSound: true,
+          enableVibration: true,
         ),
       );
       await androidPlugin?.createNotificationChannel(
@@ -205,6 +207,8 @@ class NotificationService {
             channelDescription: 'Medicine, water, food and care reminders',
             importance: Importance.high,
             priority: Priority.high,
+            playSound: true,
+            enableVibration: true,
             icon: '@mipmap/ic_launcher',
             styleInformation: BigTextStyleInformation(body),
             category: AndroidNotificationCategory.reminder,

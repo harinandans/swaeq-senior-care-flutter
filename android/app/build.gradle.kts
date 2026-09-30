@@ -39,6 +39,13 @@ android {
         }
     }
 
+    packaging {
+        jniLibs {
+            // Prebuilt AAR libs (for example datastore) ignore ndk.abiFilters.
+            excludes += listOf("lib/armeabi-v7a/**", "lib/x86/**", "lib/x86_64/**")
+        }
+    }
+
     buildTypes {
         release {
             // TODO: Add your own signing config for the release build.

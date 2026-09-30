@@ -28,6 +28,7 @@ COPY . .
 
 RUN flutter pub get \
  && flutter build apk --release \
+      --target-platform android-arm64 \
       --dart-define=API_BASE_URL=${API_BASE_URL} \
  && mkdir -p /out \
  && cp build/app/outputs/flutter-apk/app-release.apk /out/swaeq-senior.apk \
